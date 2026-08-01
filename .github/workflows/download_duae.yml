@@ -1,0 +1,37 @@
+name: Download DUAE R2 Data
+
+on:
+  workflow_dispatch:
+
+jobs:
+  download-r2:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install boto3 python-dotenv
+
+      - name: Run download script
+        env:
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+        run: |
+          python download_duae.py
+
+      - name: Upload downloaded files as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DUAE_download_${{ github.run_id }}
+          path: DUAE_1/
+          retention-days: 7
