@@ -94,14 +94,9 @@ def sanitize_name(name: str) -> str:
 def extract_sheet_name(names_en: list) -> str:
     if not names_en:
         return "Other"
-    if len(names_en) == 2:
-        return names_en[1]
-
-    level2 = names_en[2]
-    if len(names_en) >= 4:
-        level3 = names_en[3]
-        return f"{level2} ({level3})"
-    return level2
+    if len(names_en) <= 2:
+        return names_en[-1]
+    return names_en[2]
 
 
 def generate_data_quality_report(df: pd.DataFrame, total_rows: int) -> str:
@@ -229,9 +224,10 @@ def download_images(images: list, slug: str = "", category: str = "", id_prod: s
             r = req.get(img_url, timeout=15)
             if r.status_code == 200:
                 img = Image.open(io.BytesIO(r.content))
-                output_buffer = io.BytesIO()
                 img = img.convert("RGB")
-                img.save(output_buffer, format="WEBP", quality=70, method=6)
+                #img.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION), Image.LANCZOS)
+                output_buffer = io.BytesIO()
+                img.save(output_buffer, format="WEBP", quality=WEBP_QUALITY, method=6)
                 output_buffer.seek(0)
 
                 r2_key = upload_buffer(
@@ -322,12 +318,11 @@ def _write_excel_and_json(sheets: dict, xlsx_path: str) -> tuple:
     return xlsx_path, json_path
 
 
-
 def build_group_summary(sheets: dict, group_df: pd.DataFrame, cat0: str, cat1: str, dt: datetime) -> dict:
     """
     Same top-level shape as the shared summary.json format. `subcategories`
-    here maps to this group's Excel sheets (manufacturers for car
-    categories, or extract_sheet_name() subcategories otherwise).
+    here maps to this group's Excel sheets (shallow split) or per-file
+    groups (deep split) -- see _process_dataframe.
     """
     subcategories = [
         {
@@ -349,6 +344,67 @@ def build_group_summary(sheets: dict, group_df: pd.DataFrame, cat0: str, cat1: s
         "total_listings": len(group_df),
         "subcategories": subcategories,
     }
+
+
+def _write_shallow_split(group_df: pd.DataFrame, excel_dir: str, safe_cat1: str) -> tuple:
+    """
+    max category depth <= 3: single {cat1}.xlsx, one sheet per leaf
+    subcategory (names_en[2], or names_en[-1] when there's no
+    subcategory level at all, e.g. names_en == ['Classifieds', 'Books']).
+    """
+    group_df = group_df.copy()
+    group_df["_sheet_name"] = group_df["_names_en"].apply(extract_sheet_name)
+
+    main_xlsx = os.path.join(excel_dir, f"{safe_cat1}.xlsx")
+    sheets = {}
+    for sheet_name, sdf in group_df.groupby("_sheet_name"):
+        cols_to_drop = ["_sheet_name", "_cat0", "_cat1", "_names_en"]
+        sdf_clean = sdf.drop(columns=[c for c in cols_to_drop if c in sdf.columns])
+        safe_sheet = sanitize_name(sheet_name)[:31]
+        sheets[safe_sheet] = sdf_clean
+
+    xlsx_path, json_path = _write_excel_and_json(sheets, main_xlsx)
+    print(f"  Saved main: {main_xlsx} ({len(group_df)} rows)")
+    return xlsx_path, json_path, sheets
+
+
+def _write_deep_split(group_df: pd.DataFrame, excel_dir: str) -> tuple:
+    """
+    max category depth > 3: one {cat2}.xlsx per level-2 subcategory
+    (e.g. Televisions, Smart Home), each split into one sheet per
+    level-3 subcategory (e.g. LCD, LED LCD). Rows with no level-3 land
+    in a single sheet named after the level-2 subcategory itself.
+    """
+    group_df = group_df.copy()
+    group_df["_cat2"] = group_df["_names_en"].apply(lambda n: n[2] if len(n) > 2 else "Other")
+    group_df["_cat3_group"] = group_df["_names_en"].apply(
+        lambda n: n[3] if len(n) > 3 else (n[2] if len(n) > 2 else "Other")
+    )
+
+    excel_files = []
+    json_files = []
+    sheets = {}  # cat2 -> full df, for summary.json counts
+
+    for cat2_name, c2_df in group_df.groupby("_cat2"):
+        safe_cat2 = sanitize_name(cat2_name)
+        cat2_xlsx = os.path.join(excel_dir, f"{safe_cat2}.xlsx")
+
+        sub_sheets = {}
+        for sheet_name, c3_df in c2_df.groupby("_cat3_group"):
+            cols_to_drop = ["_cat2", "_cat3_group", "_cat0", "_cat1", "_names_en"]
+            c3_clean = c3_df.drop(columns=[c for c in cols_to_drop if c in c3_df.columns])
+            safe_sheet = sanitize_name(sheet_name)[:31]
+            sub_sheets[safe_sheet] = c3_clean
+
+        xlsx_path, json_path = _write_excel_and_json(sub_sheets, cat2_xlsx)
+        excel_files.append(xlsx_path)
+        json_files.append(json_path)
+        print(f"    Saved: {cat2_xlsx} ({len(c2_df)} rows, {len(sub_sheets)} sheet(s))")
+
+        sheets[safe_cat2] = c2_df
+
+    return excel_files, json_files, sheets
+
 
 def _process_dataframe(df: pd.DataFrame, category_name: str, output_base_dir: str,
                         upload_images: bool, image_workers: int) -> dict:
@@ -390,21 +446,16 @@ def _process_dataframe(df: pd.DataFrame, category_name: str, output_base_dir: st
         os.makedirs(json_dir, exist_ok=True)
         os.makedirs(summary_dir, exist_ok=True)
 
-        group_df = group_df.copy()
-        group_df["_sheet_name"] = group_df["category_v2"].apply(get_category_names).apply(extract_sheet_name)
+        max_depth = group_df["_names_en"].apply(len).max() if len(group_df) else 0
 
-        main_xlsx = os.path.join(excel_dir, f"{safe_cat1}.xlsx")
-        sheets = {}
-        for sheet_name, sdf in group_df.groupby("_sheet_name"):
-            cols_to_drop = ["_sheet_name", "_cat0", "_cat1", "_names_en"]
-            sdf_clean = sdf.drop(columns=[c for c in cols_to_drop if c in sdf.columns])
-            safe_sheet = sanitize_name(sheet_name)[:31]
-            sheets[safe_sheet] = sdf_clean
-
-        xlsx_path, json_path = _write_excel_and_json(sheets, main_xlsx)
-        excel_files.append(xlsx_path)
-        json_files.append(json_path)
-        print(f"  Saved main: {main_xlsx} ({len(group_df)} rows)")
+        if max_depth > 3:
+            group_excel_files, group_json_files, sheets = _write_deep_split(group_df, excel_dir)
+            excel_files.extend(group_excel_files)
+            json_files.extend(group_json_files)
+        else:
+            xlsx_path, json_path, sheets = _write_shallow_split(group_df, excel_dir, safe_cat1)
+            excel_files.append(xlsx_path)
+            json_files.append(json_path)
 
         dt = datetime.now(timezone.utc)
         summary = build_group_summary(sheets, group_df, safe_cat0, safe_cat1, dt)

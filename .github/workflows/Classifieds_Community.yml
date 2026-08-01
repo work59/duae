@@ -347,13 +347,40 @@ jobs:
       max-parallel: 3
       matrix:
         category:
-          - used_cars
-          - rental_cars
-          - motorcycles
-          - auto_accessories_parts
-          - heavy_vehicles
-          - boats
-          - number_plates
+          - electronics
+          - computers_networking
+          - business_industrial
+          - home_appliances
+          - sports_equipment
+          - clothing_accessories
+          - cameras_imaging
+          - jewelry_watches
+          - pets
+          - musical_instruments
+          - gaming
+          - baby_items
+          - toys
+          - tickets_vouchers
+          - collectibles
+          - books
+          - music
+          - free_stuff
+          - lostfound
+          - dvds_movies
+          - mobile_phones_pdas
+          - furniture_home_garden
+          - auto_services
+          - consultancy_services
+          - domestic
+          - event_entertainment
+          - freelancers
+          - health_wellbeing_services
+          - home_maintenance
+          - movers_removals
+          - other_services
+          - restoration_repairs
+          - tutors_classes
+          - web_computer_services
 
     steps:
       - name: Checkout repo
