@@ -25,6 +25,7 @@ jobs:
         run: |
             python << 'EOF'
             import boto3
+            import os
             client = boto3.client('s3',
                         endpoint_url=os.environ['CF_R2_ENDPOINT_URL'],
                         aws_access_key_id=os.environ['CF_R2_ACCESS_KEY_ID'],
