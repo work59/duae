@@ -536,7 +536,7 @@ def build_monitor_stats(
         (end_date - timedelta(days=i)).strftime("%Y-%m-%d")
         for i in range(days_lookback)
     ]
-    dates_to_check = '2026-07-31'
+    #dates_to_check = '2026-07-31'
     print(dates_to_check)
     
     log.info(f"Processing {len(scrapers)} scrapers over {days_lookback} days...")
