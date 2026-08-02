@@ -153,14 +153,12 @@ def partition_date_for_data_date(dt: datetime) -> datetime:
                 prefixes.append(prefix)
     return prefixes"""
 
-def excel_prefixes_for_date(base: str, dt: datetime) -> List[str]:
-    """
-    Build R2 date-partition prefixes for Excel discovery.
+"""def excel_prefixes_for_date(base: str, dt: datetime) -> List[str]:
+    # Build R2 date-partition prefixes for Excel discovery.
     
-    If base = "DKSA/Mobile Phones & Accessories":
-      - Tries: DKSA/Mobile Phones & Accessories/year=2026/month=07/day=23/excel/
-      - Tries: DKSA/year=2026/month=07/day=23/Mobile Phones & Accessories/excel/
-    """
+    # If base = "DKSA/Mobile Phones & Accessories":
+    #   - Tries: DKSA/Mobile Phones & Accessories/year=2026/month=07/day=23/excel/
+    #   - Tries: DKSA/year=2026/month=07/day=23/Mobile Phones & Accessories/excel/
     seen: set = set()
     prefixes: List[str] = []
     
@@ -199,5 +197,51 @@ def excel_prefixes_for_date(base: str, dt: datetime) -> List[str]:
             if prefix4 not in seen:
                 seen.add(prefix4)
                 prefixes.append(prefix4)
+    
+    return prefixes"""
+
+def excel_prefixes_for_date(base: str, dt: datetime) -> List[str]:
+    """
+    Build R2 date-partition prefixes for Excel discovery.
+    
+    If base = "DUAE/Classifieds/business_industrial":
+      - Tries: DUAE/year=2026/month=08/day=03/Classifieds/business_industrial/excel/
+      - Tries: DUAE/Classifieds/business_industrial/year=2026/month=08/day=03/excel/
+    """
+    seen: set = set()
+    prefixes: List[str] = []
+    
+    base = base.strip("/")
+    parts = base.split("/")
+    
+    # Build date part
+    date_part = f"year={dt.year}/month={dt.month:02d}/day={dt.day:02d}"
+    date_part_unpadded = f"year={dt.year}/month={dt.month}/day={dt.day}"
+    
+    # Separate prefix (first part) and rest (remaining parts)
+    # base = "DUAE/Classifieds/business_industrial"
+    # prefix_part = "DUAE"
+    # rest_path = "Classifieds/business_industrial"
+    prefix_part = parts[0]  # "DUAE"
+    rest_path = "/".join(parts[1:]) if len(parts) > 1 else ""  # "Classifieds/business_industrial"
+    
+    for date_str in [date_part, date_part_unpadded]:
+        paths_to_try = []
+        
+        # Option 1: prefix/date/rest_path/excel/  ← الصح لـ DUAE
+        # DUAE/year=2026/month=08/day=03/Classifieds/business_industrial/excel/
+        if rest_path:
+            paths_to_try.append(f"{prefix_part}/{date_str}/{rest_path}/excel/")
+            paths_to_try.append(f"{prefix_part}/{date_str}/{rest_path}/")
+        
+        # Option 2: base/date/excel/
+        # DUAE/Classifieds/business_industrial/year=2026/month=08/day=03/excel/
+        paths_to_try.append(f"{base}/{date_str}/excel/")
+        paths_to_try.append(f"{base}/{date_str}/")
+        
+        for prefix in paths_to_try:
+            if prefix not in seen:
+                seen.add(prefix)
+                prefixes.append(prefix)
     
     return prefixes
