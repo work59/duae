@@ -197,6 +197,7 @@ def list_scraper_excel_files(client, bucket: str, r2_base: str, date_str: str) -
     seen_keys = set()
     
     for prefix in excel_prefixes_for_date(r2_base, part_dt):
+        print(prefix)
         try:
             for f in list_excel_files(client, bucket, prefix):
                 if f["key"] not in seen_keys:
@@ -556,6 +557,7 @@ def build_monitor_stats(
             dates_to_check,
             existing_stats
         )
+        print(scraper_stats)
         
         if scraper_stats:
             if scraper_name in stats:
