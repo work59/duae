@@ -18,7 +18,7 @@ s3 = boto3.client(
     aws_secret_access_key=CF_R2_SECRET_KEY,
     region_name="auto",
 )
-r2_prefix = "DUAE"
+r2_prefix = "DKSA"
 
 LOCAL_ROOT = f"{r2_prefix}_1"
 
