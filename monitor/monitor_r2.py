@@ -47,7 +47,9 @@ def report_r2_key(site: Dict, partition_date: str) -> str:
 
 
 def partition_date_for_listing(listing_dt):
-    """R2 folder uses save_date = listing date + 1 day."""
+    """
+    Legacy function - kept for compatibility.
+    """
     return listing_dt + timedelta(days=1)
 
 def site_config_r2_key(folder: str, root: str = MONITOR_SITES_ROOT) -> str:

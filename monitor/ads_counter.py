@@ -52,16 +52,24 @@ PHONE_COLUMN_CANONICAL = frozenset({
 log = logging.getLogger("monitor")
 
 
-def _json_prefixes_for_date(base: str, dt: datetime) -> List[str]:
-    seen: set = set()
-    prefixes: List[str] = []
-    for month in (f"{dt.month:02d}", str(dt.month)):
-        for day in (f"{dt.day:02d}", str(dt.day)):
-            prefix = f"{base}/year={dt.year}/month={month}/day={day}/json/"
-            if prefix not in seen:
-                seen.add(prefix)
-                prefixes.append(prefix)
-    return prefixes
+def _json_prefixes_for_date(base: str, category: Optional[str], dt: datetime) -> List[str]:
+    """
+    Build the R2 date-partition prefix for JSON discovery, scoped to one
+    scraper's own category folder.
+
+    Actual structure:
+    DOMAN/year=2026/month=08/day=02/Vehicles/summary/summary.json
+    """
+    base = base.strip("/")
+    date_part = f"year={dt.year}/month={dt.month:02d}/day={dt.day:02d}"
+
+    if category:
+        prefix = f"{base}/{date_part}/{category.strip('/')}/summary/"
+    else:
+        # No category known — fall back to the broad date folder (legacy behavior).
+        prefix = f"{base}/{date_part}/"
+
+    return [prefix]
 
 def _first_non_empty_str(row: Dict[str, Any], keys: Tuple[str, ...]) -> str:
     for key in keys:
@@ -450,9 +458,11 @@ def load_json_summaries(
     bucket: str,
     r2_base: str,
     partition_dt: datetime,
+    category: Optional[str] = None,
 ) -> Tuple[Optional[int], Optional[str], List[Dict[str, Any]]]:
     """
-    List json-files/ under the scraper partition and return (total, source_key).
+    List json-files/ under the scraper's own category partition and return
+    (total, source_key, breakdown).
 
     When multiple JSON files exist, uses the largest total_listings value
     (handles upload-summary vs summary files).
@@ -461,7 +471,7 @@ def load_json_summaries(
     best_key: Optional[str] = None
     best_breakdown: List[Dict[str, Any]] = []
 
-    for prefix in _json_prefixes_for_date(r2_base.strip("/"), partition_dt):
+    for prefix in _json_prefixes_for_date(r2_base.strip("/"), category, partition_dt):
         try:
             paginator = client.get_paginator("list_objects_v2")
             for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
