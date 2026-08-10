@@ -26,10 +26,6 @@ def build_client():
     endpoint = os.environ["CF_R2_ENDPOINT_URL"].rstrip("/")
     bucket_name = os.environ["CF_R2_BUCKET_NAME"]
 
-    print("Endpoint:", endpoint)
-    print("Bucket:", bucket_name)
-    print("Access Key:", access_key[:6] if access_key else None)
-
     if endpoint.endswith("/" + bucket_name):
         endpoint = endpoint[: -len("/" + bucket_name)]
 
