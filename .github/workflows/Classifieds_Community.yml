@@ -1,10 +1,8 @@
 name: Classifieds & Community
 
 on:
-  workflow_run:
-    workflows: ["Rent (batch 2)"]
-    types:
-      - completed
+  schedule:
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
@@ -230,6 +228,7 @@ jobs:
           import glob
           import os
           import json
+          import shutil
           import boto3
           import re
           import pandas as pd
@@ -278,27 +277,62 @@ jobs:
 
           failed_percentage = (len(failed_pages) / total_pages * 100) if total_pages > 0 else 0
 
-          # Process data
+          # Copy request_stats and failed_pages to output_base so dub_writer can read them
           output_base = "output"
+          os.makedirs(output_base, exist_ok=True)
+          for stats_f in glob.glob('raw_parts/request_stats_*.json'):
+              shutil.copy(stats_f, output_base)
+
+          # Build failed_pages_{category}.json for dub_writer
+          failed_pages_data = {
+              "category": category,
+              "total_failed": len(failed_pages),
+              "failed_pages": [
+                  {"category": category, "page": p, "error": "Failed after retries"}
+                  for p in failed_pages
+              ]
+          }
+          with open(os.path.join(output_base, f"failed_pages_{category}.json"), "w", encoding="utf-8") as f:
+              json.dump(failed_pages_data, f, ensure_ascii=False, indent=2)
+
+          # Process data (NO phone_lookup)
           result = process_category(
               category, jsonl_files, output_base,
-              upload_images=True, enrich_contact_details=True
+              upload_images=False, enrich_description=True
           )
 
           print(f"\nCategory: {category} | Total rows: {result['total']} | Excel files: {len(result['excel_files'])}")
           print(f"Total Pages: {total_pages} | Failed Pages: {len(failed_pages)} | Failed: {failed_percentage:.2f}%")
 
-          # Upload Excel files -- DUAE/{date}/{cat0}/{cat1}/excel/...  (no city segment)
+          # Read category_path from first summary.json found
+          category_path = None
+          for root, dirs, files in os.walk(output_base):
+              for file in files:
+                  if file == 'summary.json':
+                      try:
+                          with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                              s = json.load(f)
+                          category_path = s.get("category_path")
+                          if category_path:
+                              break
+                      except Exception:
+                          pass
+              if category_path:
+                  break
+
+          if not category_path:
+              category_path = category.replace("_", "/")
+              print(f"Warning: category_path not found in summaries, using fallback: {category_path}")
+
+          print(f"Using category_path: {category_path}")
+
+          # Upload Excel files
           for local_path in result["excel_files"]:
               relative_path = os.path.relpath(local_path, output_base)
               parts = relative_path.split(os.sep)
-              if len(parts) >= 3:
-                  cat0 = parts[0]
-                  cat1 = parts[1]
-                  remaining_path = '/'.join(parts[3:]) if len(parts) > 3 else parts[2]
-                  r2_key = f"DUAE/{date_prefix}/{cat0}/{cat1}/excel/{remaining_path}"
-              else:
-                  r2_key = f"DUAE/{date_prefix}/{relative_path}"
+              # parts = [cat0, cat1, excel, filename.xlsx]
+              filename = parts[-1]
+              r2_key = f"DUAE/{date_prefix}/{category_path}/excel/{filename}"
 
               client.upload_file(local_path, bucket, r2_key,
                   ExtraArgs={'ContentType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
@@ -308,229 +342,87 @@ jobs:
           for local_path in result["json_files"]:
               relative_path = os.path.relpath(local_path, output_base)
               parts = relative_path.split(os.sep)
-              if len(parts) >= 3:
-                  cat0 = parts[0]
-                  cat1 = parts[1]
-                  remaining_path = '/'.join(parts[3:]) if len(parts) > 3 else parts[2]
-                  r2_key = f"DUAE/{date_prefix}/{cat0}/{cat1}/json/{remaining_path}"
-              else:
-                  r2_key = f"DUAE/{date_prefix}/{relative_path}"
+              filename = parts[-1]
+              r2_key = f"DUAE/{date_prefix}/{category_path}/json/{filename}"
 
               client.upload_file(local_path, bucket, r2_key,
                   ExtraArgs={'ContentType': 'application/json; charset=utf-8'})
               print(f"Uploaded JSON: {r2_key}")
 
-          # Upload summary
+          # Save summary placeholder for finalization later
+          summary_paths = []
           for root, dirs, files in os.walk('output'):
               for file in files:
                   if file == 'summary.json':
-                      local_path = os.path.join(root, file)
-                      relative_path = os.path.relpath(local_path, output_base)
-                      parts = relative_path.split(os.sep)
-                      if len(parts) >= 3:
-                          cat0 = parts[0]
-                          cat1 = parts[1]
-                          r2_key = f"DUAE/{date_prefix}/{cat0}/{cat1}/summary/summary.json"
-                          client.upload_file(local_path, bucket, r2_key,
-                              ExtraArgs={'ContentType': 'application/json; charset=utf-8'})
-                          print(f"Uploaded summary: {r2_key}")
+                      summary_paths.append(os.path.join(root, file))
 
-          # ---- failed.json + request_metrics.json ----
-          def aggregate_request_stats(stats_glob):
-              total_requests = 0
-              total_duration_min = 0.0
-              for f in glob.glob(stats_glob):
-                  with open(f, 'r', encoding='utf-8') as fh:
-                      stats = json.load(fh)
-                  total_requests += stats.get('total_requests', 0)
-                  total_duration_min += stats.get('total_duration_min', 0) or 0
-              requests_per_min = round(total_requests / total_duration_min, 2) if total_duration_min > 0 else total_requests
-              return {
-                  "requests_total": total_requests,
-                  "duration_sec": round(total_duration_min * 60, 2),
-                  "requests_per_min": requests_per_min,
-              }
-
-          failed_pages.sort()
-          failed_report = {
-              "category": category,
-              "total_pages_attempted": total_pages,
-              "total_failed": len(failed_pages),
-              "failed_percentage": round(failed_percentage, 2),
-              "failed_pages": failed_pages,
-          }
-          local_failed_file = f"failed_{category}.json"
-          with open(local_failed_file, "w", encoding="utf-8") as f:
-              json.dump(failed_report, f, ensure_ascii=False, indent=2)
-
-          metrics = aggregate_request_stats('raw_parts/request_stats_*.json')
-          local_metrics_file = f"request_metrics_{category}.json"
-          with open(local_metrics_file, "w", encoding="utf-8") as f:
-              json.dump(metrics, f, ensure_ascii=False, indent=2)
-          print(f"Metrics for {category}: {metrics['requests_total']} req, {metrics['requests_per_min']} req/min, {metrics['duration_sec']}s")
-
-          summary_groups = set()
-          for local_path in result["excel_files"]:
-              relative_path = os.path.relpath(local_path, output_base)
-              parts = relative_path.split(os.sep)
-              if len(parts) >= 2:
-                  cat0, cat1 = parts[0], parts[1]
-                  summary_groups.add((cat0, cat1))
-
-          for cat0, cat1 in summary_groups:
-              failed_key = f"DUAE/{date_prefix}/{cat0}/{cat1}/summary/failed.json"
-              client.upload_file(local_failed_file, bucket, failed_key,
-                  ExtraArgs={'ContentType': 'application/json; charset=utf-8'})
-              print(f"Uploaded: {failed_key}")
-
-              metrics_key = f"DUAE/{date_prefix}/{cat0}/{cat1}/summary/request_metrics.json"
-              client.upload_file(local_metrics_file, bucket, metrics_key,
-                  ExtraArgs={'ContentType': 'application/json; charset=utf-8'})
-              print(f"Uploaded: {metrics_key}")
+          # Copy summaries to a known location for artifact upload
+          os.makedirs("summaries", exist_ok=True)
+          for sp in summary_paths:
+              try:
+                  with open(sp, 'r', encoding='utf-8') as f:
+                      s = json.load(f)
+                  cp = s.get("category_path", category)
+                  # Sanitize for filename
+                  safe_cp = cp.replace("/", "_")
+                  dest = f"summaries/summary_placeholder_{safe_cp}.json"
+              except Exception:
+                  dest = f"summaries/summary_placeholder_{category}.json"
+              shutil.copy(sp, dest)
+              print(f"  Saved summary placeholder: {dest}")
 
           print(f"\nDONE: {len(result['excel_files'])} excel + {len(result['json_files'])} json files uploaded for {category}")
           EOF
 
-      - name: Upload failed pages artifact
+      - name: Upload summary placeholder
         uses: actions/upload-artifact@v4
         with:
-          name: failed-${{ matrix.category }}
-          path: raw_parts/*_failed.txt
+          name: summary-${{ matrix.category }}
+          path: summaries/*.json
           if-no-files-found: ignore
 
-#   compress_images:
-#     runs-on: ubuntu-latest
-#     needs: merge
+  finalize-summaries:
+    runs-on: ubuntu-latest
+    needs: merge
+    if: ${{ always() }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-#     steps:
-#       - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-#       - uses: actions/setup-python@v5
-#         with:
-#           python-version: "3.11"
+      - name: Install dependencies
+        run: pip install boto3 python-dotenv
 
-#       - run: pip install boto3
+      - name: Get workflow duration
+        id: workflow_duration
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          STARTED_AT=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }} --jq .run_started_at)
+          START_TIMESTAMP=$(date -d "$STARTED_AT" +%s)
+          NOW_TIMESTAMP=$(date -u +%s)
+          DURATION_SEC=$((NOW_TIMESTAMP - START_TIMESTAMP))
+          echo "duration_sec=$DURATION_SEC" >> "$GITHUB_OUTPUT"
+          echo "Workflow started at: $STARTED_AT"
+          echo "Workflow duration: ${DURATION_SEC}s"
 
-#       - name: Compress images
-#         env:
-#           CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-#           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-#           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-#           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-#         run: |
-#             python << 'EOF'
-#             import os
-#             import io
-#             import boto3
-#             import zipfile
-#             from datetime import datetime
-#             from collections import defaultdict
+      - name: Download all summary placeholders
+        uses: actions/download-artifact@v4
+        with:
+          pattern: summary-*
+          merge-multiple: true
+          path: summaries/
 
-#             dt = datetime.now()
-#             date_prefix = f"year={dt.year}/month={dt.strftime('%m')}/day={dt.strftime('%d')}"
-
-#             client = boto3.client(
-#                 "s3",
-#                 endpoint_url=os.environ["CF_R2_ENDPOINT_URL"],
-#                 aws_access_key_id=os.environ["CF_R2_ACCESS_KEY_ID"],
-#                 aws_secret_access_key=os.environ["CF_R2_SECRET_ACCESS_KEY"],
-#                 region_name="auto",
-#             )
-
-#             bucket = os.environ["CF_R2_BUCKET_NAME"]
-
-#             base_prefix = f"DUAE/{date_prefix}/"
-
-#             all_image_keys = []
-
-#             paginator = client.get_paginator("list_objects_v2")
-#             for page in paginator.paginate(Bucket=bucket, Prefix=base_prefix):
-#                 for obj in page.get("Contents", []):
-#                     key = obj["Key"]
-#                     if "/images/" in key and not key.endswith(".zip"):
-#                         all_image_keys.append(key)
-
-#             if not all_image_keys:
-#                 print("No images found to compress")
-#                 exit(0)
-
-#             images_by_folder = defaultdict(list)
-
-#             for key in all_image_keys:
-#                 folder = key.rsplit("/", 1)[0]
-#                 images_by_folder[folder].append(key)
-
-#             print(f"Found {len(images_by_folder)} image folders to compress")
-
-#             for folder, keys in images_by_folder.items():
-
-#                 print(f"\nCompressing {len(keys)} images in {folder}...")
-
-#                 with io.BytesIO() as zip_buffer:
-
-#                     uploaded_count = 0
-
-#                     with zipfile.ZipFile(
-#                         zip_buffer,
-#                         mode="w",
-#                         compression=zipfile.ZIP_DEFLATED,
-#                     ) as zf:
-
-#                         for key in keys:
-
-#                             filename = key.rsplit("/", 1)[-1]
-
-#                             try:
-#                                 obj = client.get_object(Bucket=bucket, Key=key)
-#                                 body = obj["Body"]
-
-#                                 try:
-#                                     zf.writestr(filename, body.read())
-#                                     uploaded_count += 1
-#                                 finally:
-#                                     body.close()
-
-#                             except Exception as e:
-#                                 print(f"    [ERROR] Failed to read {key}: {e}")
-
-#                     if uploaded_count == 0:
-#                         print("    No images were added to the zip, skipping folder.")
-#                         continue
-
-#                     zip_buffer.seek(0)
-
-#                     zip_r2_key = f"{folder}/images.zip"
-
-#                     client.upload_fileobj(
-#                         zip_buffer,
-#                         bucket,
-#                         zip_r2_key,
-#                         ExtraArgs={
-#                             "ContentType": "application/zip"
-#                         },
-#                     )
-
-#                     response = client.head_object(
-#                         Bucket=bucket,
-#                         Key=zip_r2_key,
-#                     )
-
-#                     print(
-#                         f"    Uploaded zip: {zip_r2_key} "
-#                         f"({uploaded_count} images, {response['ContentLength']} bytes)"
-#                     )
-
-#                     delete_objects = [{"Key": k} for k in keys]
-
-#                     for i in range(0, len(delete_objects), 1000):
-#                         client.delete_objects(
-#                             Bucket=bucket,
-#                             Delete={
-#                                 "Objects": delete_objects[i:i + 1000]
-#                             },
-#                         )
-
-#                     print(f"    Deleted {len(keys)} individual images from {folder}")
-
-#             print("\nDONE: Compressed all image folders")
-#             EOF
+      - name: Finalize and upload summaries to R2
+        env:
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+          WORKFLOW_DURATION: ${{ steps.workflow_duration.outputs.duration_sec }}
+        run: |
+          python finalize_summaries.py --summaries-dir summaries/ --workflow "Classifieds & Community"

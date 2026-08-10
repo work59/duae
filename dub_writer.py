@@ -11,11 +11,9 @@ from PIL import Image
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from r2_uploader import upload_buffer
-from datetime import datetime
 
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
-
 # Long-edge cap (px) images are downscaled to before upload, plus the WEBP
 # quality used when re-encoding. Most source photos are 3000px+ wide;
 # capping the long edge is what actually cuts stored bytes -- quality alone
@@ -23,23 +21,38 @@ from playwright_stealth import Stealth
 MAX_IMAGE_DIMENSION = 1280
 WEBP_QUALITY = 65
 
-NEW_VALUE = "new"
-
 COLUMNS_TO_DROP = [
     "photo", "photo_mains", "photos", "_highlightResult",
     "site_categories_slug_tree", "category_slug_tree", "category_tree",
-    "category", "permalink"
+    "category", "permalink", "seo_links", "vas"
 ]
 
-PHONE_BUTTON_SELECTORS = [
-    '[data-testid="call-cta-button"]',
-    'button:has-text("Show Phone Number")',
-    'button:has-text("Show Number")',
-    'button:has-text("Show phone number")',
-    'button:has-text("Call")',
-    '[data-testid*="phone" i]',
-    '[data-testid*="show-phone" i]',
-]
+
+def get_category_path(category_v2_value) -> str:
+    """Build R2 folder path from category_v2.slug_paths dynamically.
+
+    Example:
+        slug_paths: ['motors', 'motors/number-plates', 'motors/number-plates/dubai-plate', 'motors/number-plates/dubai-plate/private-car']
+        -> deepest: 'motors/number-plates/dubai-plate/private-car'  (slug_paths is shallow -> deep, so the LAST element is deepest)
+        -> parent:  'motors/number-plates'  (keep first 2 segments after 'motors')
+        -> result:  'motors/number-plates'
+
+    For motors, we take the first 2 meaningful segments (motors + sub-category).
+    """
+    cat = parse_dict_field(category_v2_value)
+    slug_paths = cat.get("slug_paths", [])
+    if not slug_paths:
+        return "unknown"
+
+    # slug_paths is ordered shallow -> deep, so the deepest path is the LAST element
+    deepest = slug_paths[-1]
+    parts = deepest.split("/")
+
+    # For motors: keep first 2 segments (e.g. motors/number-plates)
+    # If only 1 segment, use it as-is
+    if len(parts) >= 2:
+        return "/".join(parts[:2])
+    return deepest
 
 
 def parse_dict_field(value):
@@ -215,6 +228,7 @@ def download_images(images: list, slug: str = "", category: str = "", id_prod: s
     ext = "webp"
     slug = slug or "unknown"
     file_prefix = id_prod if id_prod else slug
+    today = datetime.now(timezone.utc)
 
     category_display = f"{cat0}/{cat1}" if cat0 and cat1 else (cat1 or cat0)
 
@@ -225,7 +239,6 @@ def download_images(images: list, slug: str = "", category: str = "", id_prod: s
             if r.status_code == 200:
                 img = Image.open(io.BytesIO(r.content))
                 img = img.convert("RGB")
-                #img.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION), Image.LANCZOS)
                 output_buffer = io.BytesIO()
                 img.save(output_buffer, format="WEBP", quality=WEBP_QUALITY, method=6)
                 output_buffer.seek(0)
@@ -237,7 +250,7 @@ def download_images(images: list, slug: str = "", category: str = "", id_prod: s
                     category=category,
                     file_type="images",
                     content_type="image/webp",
-                    dt=None,
+                    dt=today,
                     category_display=category_display
                 )
                 if r2_key:
@@ -318,11 +331,84 @@ def _write_excel_and_json(sheets: dict, xlsx_path: str) -> tuple:
     return xlsx_path, json_path
 
 
-def build_group_summary(sheets: dict, group_df: pd.DataFrame, cat0: str, cat1: str, dt: datetime) -> dict:
+# =============================================================================
+# Summary helpers (DKSA-style)
+# =============================================================================
+
+def format_failed_summary(failed_items: list, max_len: int = 400) -> str | None:
+    """Format failed items into a short summary string."""
+    if not failed_items:
+        return None
+    parts = []
+    for item in failed_items[:12]:
+        name = item.get("name", "?")
+        count = item.get("errors", 0)
+        detail = item.get("detail", "")
+        bit = f"{name}: {count} error(s)"
+        if detail:
+            bit += f" ({detail})"
+        parts.append(bit)
+    text = "; ".join(parts)
+    if len(failed_items) > 12:
+        text += f"; +{len(failed_items) - 12} more"
+    return text[:max_len]
+
+
+def read_request_stats(output_base_dir: str) -> dict:
+    """Read request_stats_*.json files if they exist."""
+    stats_files = []
+    for f in os.listdir(output_base_dir) if os.path.exists(output_base_dir) else []:
+        if f.startswith("request_stats_") and f.endswith(".json"):
+            stats_files.append(os.path.join(output_base_dir, f))
+
+    total_requests = 0
+    total_duration_min = 0.0
+    for sf in stats_files:
+        try:
+            with open(sf, "r", encoding="utf-8") as fh:
+                s = json.load(fh)
+            total_requests += s.get("total_requests", 0)
+            total_duration_min += s.get("total_duration_min", 0) or 0
+        except Exception:
+            pass
+
+    requests_per_min = round(total_requests / total_duration_min, 2) if total_duration_min > 0 else total_requests
+    return {
+        "requests_total": total_requests,
+        "duration_sec": round(total_duration_min * 60, 2),
+        "requests_per_min": requests_per_min,
+    }
+
+
+def read_failed_pages(output_base_dir: str) -> list:
+    """Read failed_pages_*.json files if they exist."""
+    failed_files = []
+    for f in os.listdir(output_base_dir) if os.path.exists(output_base_dir) else []:
+        if f.startswith("failed_pages_") and f.endswith(".json"):
+            failed_files.append(os.path.join(output_base_dir, f))
+
+    all_failed = []
+    for ff in failed_files:
+        try:
+            with open(ff, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            all_failed.extend(data.get("failed_pages", []))
+        except Exception:
+            pass
+    return all_failed
+
+
+def build_group_summary(
+    sheets: dict,
+    group_df: pd.DataFrame,
+    cat0: str,
+    cat1: str,
+    dt: datetime,
+    output_base_dir: str,
+    category_path: str = None,
+) -> dict:
     """
-    Same top-level shape as the shared summary.json format. `subcategories`
-    here maps to this group's Excel sheets (shallow split) or per-file
-    groups (deep split) -- see _process_dataframe.
+    DKSA-style summary with request_metrics + failed_items.
     """
     subcategories = [
         {
@@ -335,14 +421,54 @@ def build_group_summary(sheets: dict, group_df: pd.DataFrame, cat0: str, cat1: s
         }
         for name, sdf in sheets.items()
     ]
+
+    # Read request stats
+    request_metrics = read_request_stats(output_base_dir)
+
+    # Read failed pages
+    failed_pages = read_failed_pages(output_base_dir)
+    total_failed = len(failed_pages)
+    request_metrics["requests_failed"] = total_failed
+
+    failed_items = []
+    for page in failed_pages:
+        failed_items.append({
+            "name": f"{page.get('category', 'unknown')}-page-{page.get('page', '?')}",
+            "errors": 1,
+            "detail": page.get("error", "Failed after retries")
+        })
+
+    # Calculate error_rate_pct
+    total_requests = request_metrics.get("requests_total", 0)
+    if total_requests > 0:
+        request_metrics["error_rate_pct"] = round(total_failed / total_requests * 100, 2)
+    else:
+        request_metrics["error_rate_pct"] = None
+
+    # Calculate requests_per_min from actual duration
+    duration_sec = request_metrics.get("duration_sec", 0)
+    if duration_sec and duration_sec > 0:
+        request_metrics["requests_per_min"] = round(
+            total_requests / (duration_sec / 60.0), 2
+        )
+
     return {
         "scraped_at": dt.isoformat(),
         "data_scraped_date": (dt - timedelta(days=1)).strftime("%Y-%m-%d"),
         "saved_to_R2_date": dt.strftime("%Y-%m-%d"),
-        "category": f"{cat0}/{cat1}",
+        "category_path": category_path,
+        "category": {
+            "name_ar": f"{cat0}/{cat1}",
+            "name_en": f"{cat0}/{cat1}",
+            "slug": f"{sanitize_name(cat0)}-{sanitize_name(cat1)}",
+        },
+        "workflow_name": "Classifieds & Community",
         "total_subcategories": len(subcategories),
         "total_listings": len(group_df),
         "subcategories": subcategories,
+        "request_metrics": request_metrics,
+        "failed_items": failed_items,
+        "failed_items_summary": format_failed_summary(failed_items),
     }
 
 
@@ -350,7 +476,7 @@ def _write_shallow_split(group_df: pd.DataFrame, excel_dir: str, safe_cat1: str)
     """
     max category depth <= 3: single {cat1}.xlsx, one sheet per leaf
     subcategory (names_en[2], or names_en[-1] when there's no
-    subcategory level at all, e.g. names_en == ['Classifieds', 'Books']).
+    subcategory level at all).
     """
     group_df = group_df.copy()
     group_df["_sheet_name"] = group_df["_names_en"].apply(extract_sheet_name)
@@ -370,10 +496,10 @@ def _write_shallow_split(group_df: pd.DataFrame, excel_dir: str, safe_cat1: str)
 
 def _write_deep_split(group_df: pd.DataFrame, excel_dir: str) -> tuple:
     """
-    max category depth > 3: one {cat2}.xlsx per level-2 subcategory
-    (e.g. Televisions, Smart Home), each split into one sheet per
-    level-3 subcategory (e.g. LCD, LED LCD). Rows with no level-3 land
-    in a single sheet named after the level-2 subcategory itself.
+    max category depth > 3: one {cat2}.xlsx per level-2 subcategory,
+    each split into one sheet per level-3 subcategory. Rows with no
+    level-3 land in a single sheet named after the level-2 subcategory
+    itself.
     """
     group_df = group_df.copy()
     group_df["_cat2"] = group_df["_names_en"].apply(lambda n: n[2] if len(n) > 2 else "Other")
@@ -383,7 +509,7 @@ def _write_deep_split(group_df: pd.DataFrame, excel_dir: str) -> tuple:
 
     excel_files = []
     json_files = []
-    sheets = {}  # cat2 -> full df, for summary.json counts
+    sheets = {}
 
     for cat2_name, c2_df in group_df.groupby("_cat2"):
         safe_cat2 = sanitize_name(cat2_name)
@@ -404,6 +530,7 @@ def _write_deep_split(group_df: pd.DataFrame, excel_dir: str) -> tuple:
         sheets[safe_cat2] = c2_df
 
     return excel_files, json_files, sheets
+
 
 def convert_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
     timestamp_columns = [
@@ -428,6 +555,7 @@ def convert_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
             print(f"  Converted timestamp column: {col}")
 
     return df
+
 
 def _process_dataframe(df: pd.DataFrame, category_name: str, output_base_dir: str,
                         upload_images: bool, image_workers: int) -> dict:
@@ -470,7 +598,6 @@ def _process_dataframe(df: pd.DataFrame, category_name: str, output_base_dir: st
         os.makedirs(summary_dir, exist_ok=True)
 
         max_depth = group_df["_names_en"].apply(len).max() if len(group_df) else 0
-
         if max_depth > 3:
             group_excel_files, group_json_files, sheets = _write_deep_split(group_df, excel_dir)
             excel_files.extend(group_excel_files)
@@ -481,7 +608,8 @@ def _process_dataframe(df: pd.DataFrame, category_name: str, output_base_dir: st
             json_files.append(json_path)
 
         dt = datetime.now(timezone.utc)
-        summary = build_group_summary(sheets, group_df, safe_cat0, safe_cat1, dt)
+        category_path = get_category_path(group_df["category_v2"].iloc[0]) if not group_df.empty and "category_v2" in group_df.columns else f"{safe_cat0}/{safe_cat1}"
+        summary = build_group_summary(sheets, group_df, safe_cat0, safe_cat1, dt, output_base_dir, category_path)
         summary_file_path = os.path.join(summary_dir, "summary.json")
         with open(summary_file_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, ensure_ascii=False, indent=2)
@@ -491,23 +619,18 @@ def _process_dataframe(df: pd.DataFrame, category_name: str, output_base_dir: st
 
 
 def process_category(category_name: str, jsonl_files: list, output_base_dir: str,
-                      upload_images: bool = True, image_workers: int = 2,
-                      enrich_contact_details: bool = False,
-                      phone_lookup: dict = None) -> dict:
+                      upload_images: bool = False, image_workers: int = 2,
+                      enrich_description: bool = True) -> dict:
     df = load_all_hits(jsonl_files)
+
     if df.empty:
         return {"total": 0, "excel_files": [], "json_files": []}
 
     df = convert_timestamp_columns(df)
 
-    if enrich_contact_details and "absolute_url" in df.columns:
+    if enrich_description and "absolute_url" in df.columns:
         print(f"  Enriching {len(df)} rows with description_full...")
         df = enrich_with_description(df)
-
-    if phone_lookup and "id" in df.columns:
-        df["contact_phone_number"] = df["id"].astype(str).map(phone_lookup)
-        matched = df["contact_phone_number"].notna().sum()
-        print(f"  Matched phone numbers for {matched}/{len(df)} rows from phone_lookup")
 
     total = len(df)
     excel_files = []
