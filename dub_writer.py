@@ -101,7 +101,8 @@ def get_category_names(category_v2_value) -> list:
 def sanitize_name(name: str) -> str:
     name = re.sub(r'[<>:"/\\|?*]', "_", str(name))
     name = name.replace(" ", "_")
-    return name.strip()
+    name = re.sub(r'_+', '_', name)
+    return name.strip("_")
 
 
 def extract_sheet_name(names_en: list) -> str:
