@@ -6,6 +6,7 @@ import random
 #import pandas as pd
 from datetime import datetime, timezone, timedelta
 from request_tracker import tracker
+from zoneinfo import ZoneInfo
 
 URL = "https://wd0ptz13zs-dsn.algolia.net/1/indexes/*/queries"
 
@@ -169,27 +170,24 @@ CATEGORIES = {
     },
 }
 
-TARGET_DATE = datetime.now(timezone.utc).date() - timedelta(days=1)
+dubai_now = datetime.now(ZoneInfo("Asia/Dubai"))
+TARGET_DATE = (dubai_now.date() - timedelta(days=1))
 
 def filter_yesterday_hits(hits):
     filtered = []
-
     for hit in hits:
-        created_at = hit.get("created_at")
-
-        if created_at is None:
+        timestamp_value = hit.get("created_at")
+        if timestamp_value is None:
             continue
-
         try:
-            dt = datetime.fromtimestamp(int(created_at), tz=timezone.utc)
-
-            if dt.date() == TARGET_DATE:
+            dt_utc = datetime.fromtimestamp(int(timestamp_value), tz=timezone.utc)
+            dt_dubai = dt_utc.astimezone(ZoneInfo("Asia/Dubai"))
+            if dt_dubai.date() == TARGET_DATE:
                 filtered.append(hit)
-
         except (ValueError, TypeError):
             pass
-
     return filtered
+
 
 
 def get_page_with_retry(category: dict, page: int, max_retries: int = 3) -> dict:
