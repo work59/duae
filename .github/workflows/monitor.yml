@@ -28,7 +28,7 @@ jobs:
           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python monitor/diagnose_r2_paths.py --prefix DUAE --days 10
+        run: python monitor/diagnose_r2_paths.py --prefix haraj --days 10
 
       # - name: Diagnose excel files
       #   env:
