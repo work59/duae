@@ -1,8 +1,10 @@
-name: Classifieds & Community
+name: Community
 
 on:
-  schedule:
-    - cron: '0 0 * * *'
+  workflow_run:
+    workflows: ["Classifieds"]
+    types:
+      - completed
   workflow_dispatch:
 
 jobs:
@@ -38,29 +40,6 @@ jobs:
           }
 
           CATEGORIES = {
-              #classified
-              "electronics": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/electronics")'},
-              "computers_networking": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/computers-networking")'},
-              "business_industrial": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/business-industrial")'},
-              "home_appliances": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/home-appliances")'},
-              "sports_equipment": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/sports-equipment")'},
-              "clothing_accessories": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/clothing-accessories")'},
-              "cameras_imaging": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/cameras-imaging")'},
-              "jewelry_watches": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/jewelry-watches")'},
-              "pets": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/pets")'},
-              "musical_instruments": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/musical-instruments")'},
-              "gaming": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/gaming")'},
-              "baby_items": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/baby-items")'},
-              "toys": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/toys")'},
-              "tickets_vouchers": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/tickets-vouchers")'},
-              "collectibles": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/collectibles")'},
-              "books": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/books")'},
-              "music": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/music")'},
-              "free_stuff": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/free-stuff")'},
-              "lostfound": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/lostfound")'},
-              "dvds_movies": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/dvds-movies")'},
-              "mobile_phones_pdas": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/mobile-phones-pdas")'},
-              "furniture_home_garden": {"index": "by_added_desc_classified.com", "filter": '("category_v2.slug_paths":"classified/furniture-home-garden")'},
               #community
               "auto_services": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/auto-services")'},
               "consultancy_services": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/consultancy-services")'},
@@ -160,28 +139,6 @@ jobs:
       max-parallel: 3
       matrix:
         category:
-          - electronics
-          - computers_networking
-          - business_industrial
-          - home_appliances
-          - sports_equipment
-          - clothing_accessories
-          - cameras_imaging
-          - jewelry_watches
-          - pets
-          - musical_instruments
-          - gaming
-          - baby_items
-          - toys
-          - tickets_vouchers
-          - collectibles
-          - books
-          - music
-          - free_stuff
-          - lostfound
-          - dvds_movies
-          - mobile_phones_pdas
-          - furniture_home_garden
           - auto_services
           - consultancy_services
           - domestic
@@ -223,6 +180,7 @@ jobs:
           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           python << 'EOF'
           import glob
@@ -234,6 +192,8 @@ jobs:
           import pandas as pd
           from datetime import datetime
           from dub_writer import process_category
+
+          WORKFLOW_NAME = os.environ.get("WORKFLOW_NAME", "Unknown")
 
           category = "${{ matrix.category }}"
           jsonl_files = glob.glob('raw_parts/*.jsonl')
@@ -425,4 +385,4 @@ jobs:
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
           WORKFLOW_DURATION: ${{ steps.workflow_duration.outputs.duration_sec }}
         run: |
-          python finalize_summaries.py --summaries-dir summaries/ --workflow "Classifieds & Community"
+          python finalize_summaries.py --summaries-dir summaries/ --workflow "${{ github.workflow }}"

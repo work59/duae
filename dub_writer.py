@@ -27,6 +27,7 @@ COLUMNS_TO_DROP = [
     "category", "permalink", "seo_links", "vas"
 ]
 
+WORKFLOW_NAME = os.environ.get("WORKFLOW_NAME", "Unknown")
 
 def get_category_path(category_v2_value) -> str:
     """Build R2 folder path from category_v2.slug_paths dynamically.
@@ -469,7 +470,7 @@ def build_group_summary(
             "name_en": f"{cat0}/{cat1}",
             "slug": f"{sanitize_name(cat0)}-{sanitize_name(cat1)}",
         },
-        "workflow_name": "Classifieds & Community",
+        "workflow_name": WORKFLOW_NAME,
         "total_subcategories": len(subcategories),
         "total_listings": len(group_df),
         "subcategories": subcategories,
