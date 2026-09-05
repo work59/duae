@@ -42,17 +42,17 @@ jobs:
           CATEGORIES = {
               #community
               "auto_services": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/auto-services")'},
-              "consultancy_services": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/consultancy-services")'},
-              "domestic": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/domestic")'},
-              "event_entertainment": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/event-entertainment")'},
-              "freelancers": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/freelancers")'},
-              "health_wellbeing_services": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/health-wellbeing-services")'},
-              "home_maintenance": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/home-maintenance")'},
-              "movers_removals": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/movers-removals")'},
-              "other_services": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/other-services")'},
-              "restoration_repairs": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/restoration-repairs")'},
-              "tutors_classes": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/tutors-classes")'},
-              "web_computer_services": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/web-computer-services")'},
+              # "consultancy_services": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/consultancy-services")'},
+              # "domestic": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/domestic")'},
+              # "event_entertainment": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/event-entertainment")'},
+              # "freelancers": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/freelancers")'},
+              # "health_wellbeing_services": {"index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/health-wellbeing-services")'},
+              # "home_maintenance": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/home-maintenance")'},
+              # "movers_removals": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/movers-removals")'},
+              # "other_services": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/other-services")'},
+              # "restoration_repairs": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/restoration-repairs")'},
+              # "tutors_classes": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/tutors-classes")'},
+              # "web_computer_services": { "index": "by_added_desc_community.com", "filter": '("category_v2.slug_paths":"community/web-computer-services")'},
           }
 
           PAGES_PER_JOB = 30
@@ -140,17 +140,17 @@ jobs:
       matrix:
         category:
           - auto_services
-          - consultancy_services
-          - domestic
-          - event_entertainment
-          - freelancers
-          - health_wellbeing_services
-          - home_maintenance
-          - movers_removals
-          - other_services
-          - restoration_repairs
-          - tutors_classes
-          - web_computer_services
+          # - consultancy_services
+          # - domestic
+          # - event_entertainment
+          # - freelancers
+          # - health_wellbeing_services
+          # - home_maintenance
+          # - movers_removals
+          # - other_services
+          # - restoration_repairs
+          # - tutors_classes
+          # - web_computer_services
 
     steps:
       - name: Checkout repo

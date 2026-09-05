@@ -151,8 +151,10 @@ def _get_english_url(absolute_url_value):
 
 
 DESCRIPTION_SELECTORS = [
-    '[data-testid="description"]',
-    '[data-testid="description-heading"]',
+    'div[data-testid="description"]',           
+    '[data-testid="description"] + div',        
+    '[data-testid="description"] ~ div',        
+    '[data-testid="description-heading"]',      
 ]
 
 def _extract_description(page):
@@ -161,10 +163,33 @@ def _extract_description(page):
             loc = page.locator(selector).first
             if loc.is_visible(timeout=3000):
                 text = loc.inner_text()
-                if text:
+                if text and text.strip() and text.strip().lower() != "description":
                     return text
         except Exception:
             continue
+
+    try:
+        heading = page.locator('[data-testid="description"]').first
+        if heading.is_visible(timeout=2000):
+            text = heading.inner_text()
+            if text and text.strip().lower() == "description":
+                parent = page.locator('xpath=//*[@data-testid="description"]/..')
+                divs = parent.locator('div').all()
+                best = None
+                for div in divs:
+                    try:
+                        t = div.inner_text()
+                        if t and len(t.strip()) > len(best or ""):
+                            best = t
+                    except Exception:
+                        pass
+                if best and best.strip().lower() != "description":
+                    return best
+            elif text and text.strip():
+                return text
+    except Exception:
+        pass
+
     return None
 
 def clean_for_excel(val):
