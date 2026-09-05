@@ -138,15 +138,17 @@ jobs:
       - name: Scrape batch ${{ matrix.batch.batch_id }}
         env:
           PYTHONUNBUFFERED: "1"
+          MATRIX_BATCH: ${{ toJSON(matrix.batch) }}
         run: |
           mkdir -p work/results
           python - <<'PY'
           import json
+          import os
           import subprocess
           import sys
           from pathlib import Path
 
-          batch = json.loads('${{ toJSON(matrix.batch) }}')
+          batch = json.loads(os.environ["MATRIX_BATCH"])
           files = batch["files"]
           batch_id = batch["batch_id"]
 
