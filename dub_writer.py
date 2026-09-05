@@ -158,6 +158,14 @@ DESCRIPTION_SELECTORS = [
 ]
 
 def _extract_description(page):
+    try:
+        see_more = page.locator('button:has-text("See full description")').first
+        if see_more.is_visible(timeout=2000):
+            see_more.click()
+            page.wait_for_timeout(1500) 
+    except Exception:
+        pass
+
     for selector in DESCRIPTION_SELECTORS:
         try:
             loc = page.locator(selector).first
