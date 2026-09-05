@@ -146,7 +146,7 @@ def clean_excel_value(value):
     return value
 
 
-def prepare(date_str: str | None, out_dir: str):
+def prepare(date_str: str | None, out_dir: str, category: str = "all"):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     jobs_dir = out / "jobs"
@@ -159,10 +159,13 @@ def prepare(date_str: str | None, out_dir: str):
     community_prefix = f"{prefix}community/"
 
     keys = []
-    keys.extend(list_keys(client, classifieds_prefix))
-    keys.extend(list_keys(client, community_prefix))
+    if category in ("all", "classified"):
+        keys.extend(list_keys(client, classifieds_prefix))
+    if category in ("all", "community"):
+        keys.extend(list_keys(client, community_prefix))
 
     print(f"[PREPARE] Date: {date_iso}")
+    print(f"[PREPARE] Category: {category}")
     print(f"[PREPARE] Found {len(keys)} Excel file(s).")
 
     work = []
@@ -214,6 +217,7 @@ def prepare(date_str: str | None, out_dir: str):
         json.dumps({
             "date": date_iso,
             "prefix": prefix,
+            "category": category,
             "jobs": manifest,
             "total_work_items": len(work),
             "total_jobs": len(chunks),
@@ -568,8 +572,10 @@ def combine(results_dir: str, date_str: str | None):
                 continue
             if PHONE_COLUMN not in df.columns:
                 df[PHONE_COLUMN] = None
+            df[PHONE_COLUMN] = df[PHONE_COLUMN].astype(object)
             if DESCRIPTION_COLUMN not in df.columns:
                 df[DESCRIPTION_COLUMN] = None
+            df[DESCRIPTION_COLUMN] = df[DESCRIPTION_COLUMN].astype(object)
 
             for pos, (_, row) in enumerate(df.iterrows()):
                 listing_id = row.get("id")
@@ -580,7 +586,7 @@ def combine(results_dir: str, date_str: str | None):
                     continue
 
                 if not is_empty(u.get("phone")):
-                    df.at[df.index[pos], PHONE_COLUMN] = u["phone"]
+                    df.at[df.index[pos], PHONE_COLUMN] = str(u["phone"]).strip()
                     changed = True
 
                 if u.get("description_status") == "ok" and not is_empty(u.get("description_full")):
@@ -621,6 +627,12 @@ def main():
     p = sub.add_parser("prepare")
     p.add_argument("--date", default=None, help="YYYY-MM-DD; defaults to yesterday in Asia/Dubai")
     p.add_argument("--out", default="work")
+    p.add_argument(
+        "--category",
+        default="all",
+        choices=["all", "classified", "community"],
+        help="Which section to scan: classified, community, or all (default all)",
+    )
 
     s = sub.add_parser("scrape")
     s.add_argument("--job", required=True)
@@ -633,7 +645,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "prepare":
-        prepare(args.date, args.out)
+        prepare(args.date, args.out, args.category)
     elif args.command == "scrape":
         scrape_job(args.job, args.output)
     elif args.command == "combine":
