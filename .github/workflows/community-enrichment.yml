@@ -17,7 +17,7 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.12"
-  BATCH_SIZE: "20"  # Number of job files per batch (keeps matrix under 256)
+  BATCH_SIZE: "15"  # Number of job files per batch (keeps matrix under 256)
 
 jobs:
   prepare:
@@ -69,7 +69,7 @@ jobs:
           )
 
           jobs = manifest["jobs"]
-          batch_size = int(os.environ.get("BATCH_SIZE", "20"))
+          batch_size = int(os.environ.get("BATCH_SIZE", "15"))
 
           # Group job files into batches
           batches = []
