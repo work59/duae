@@ -19,7 +19,7 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.12"
-  BATCH_SIZE: "10"  # job files per matrix entry (keeps matrix under 256)
+  BATCH_SIZE: "15"  # job files per matrix entry (keeps matrix under 256)
 
 jobs:
   prepare:
