@@ -477,16 +477,18 @@ jobs:
 
               # Upload to new structured path: DUAE/date/category_path/file_type/filename
               filename = os.path.basename(local_final_path)
-              r2_key_excel = f"DUAE/{date_prefix}/{category_path}/excel/{filename}"
-              client.upload_file(local_final_path, bucket, r2_key_excel,
-                  ExtraArgs={'ContentType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
-              print(f"Uploaded Excel: {r2_key_excel}")
+              if filename.endswith('.xlsx'):
+                  r2_key_excel = f"DUAE/{date_prefix}/{category_path}/excel/{filename}"
+                  client.upload_file(local_final_path, bucket, r2_key_excel,
+                      ExtraArgs={'ContentType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
+                  print(f"Uploaded Excel: {r2_key_excel}")
 
               json_filename = os.path.basename(local_json_path)
-              r2_key_json = f"DUAE/{date_prefix}/{category_path}/json/{json_filename}"
-              client.upload_file(local_json_path, bucket, r2_key_json,
-                  ExtraArgs={'ContentType': 'application/json; charset=utf-8'})
-              print(f"Uploaded JSON: {r2_key_json}")
+              if json_filename.endswith('.json'):
+                  r2_key_json = f"DUAE/{date_prefix}/{category_path}/json/{json_filename}"
+                  client.upload_file(local_json_path, bucket, r2_key_json,
+                      ExtraArgs={'ContentType': 'application/json; charset=utf-8'})
+                  print(f"Uploaded JSON: {r2_key_json}")
 
               uploaded_count += 1
 
