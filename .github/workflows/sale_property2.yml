@@ -393,34 +393,37 @@ jobs:
             print(f"No batches found for {category}, skipping upload.")
             exit(0)
 
-          # Read category_path from first summary.json found
-          category_path = None
+          # Build a map of group-prefix -> category_path from EVERY summary.json found.
+          # A single "category" batch (e.g. sale_residential) can contain BOTH the
+          # normal listings and the off_plan split, each living in its own subfolder
+          # and each needing its own category_path — so one global value is wrong.
+          group_category_path = {}
           for batch_dir in batch_dirs:
               for summary_file in glob.glob(os.path.join(batch_dir, "**", "summary.json"), recursive=True):
                   try:
                       with open(summary_file, 'r', encoding='utf-8') as f:
                           s = json.load(f)
-                      category_path = s.get("category_path")
-                      if category_path:
-                          break
                   except Exception:
-                      pass
-              if category_path:
-                  break
+                      continue
+                  cp = s.get("category_path")
+                  if not cp:
+                      continue
+                  # summary.json lives at "<group_prefix>/summary/summary.json"
+                  rel_summary = os.path.relpath(summary_file, batch_dir)
+                  group_prefix = os.path.dirname(os.path.dirname(rel_summary))
+                  group_category_path[group_prefix] = cp
 
-          # Fallback: build from category name if no summary found
-          if not category_path:
-              if category == "off_plan":
-                  category_path = "property/property-for-sale/off-plan"
-              elif category.startswith("sale_"):
-                  category_path = f"property/property-for-sale/{category.replace('sale_', '')}"
-              elif category.startswith("rent_"):
-                  category_path = f"property/property-for-rent/{category.replace('rent_', '')}"
-              else:
-                  category_path = category.replace("_", "/")
-              print(f"Warning: category_path not found in summaries, using fallback: {category_path}")
+          # Fallback default, used only for a group with no matching summary.json
+          if category == "off_plan":
+              default_category_path = "property/property-for-sale/off-plan"
+          elif category.startswith("sale_"):
+              default_category_path = f"property/property-for-sale/{category.replace('sale_', '')}"
+          elif category.startswith("rent_"):
+              default_category_path = f"property/property-for-rent/{category.replace('rent_', '')}"
+          else:
+              default_category_path = category.replace("_", "/")
 
-          print(f"Using category_path: {category_path}")
+          print(f"Resolved category_path per group: {group_category_path or ('fallback: ' + default_category_path)}")
 
           excel_groups = defaultdict(list)
 
@@ -438,6 +441,13 @@ jobs:
           uploaded_count = 0
 
           for relative_path, batch_files in excel_groups.items():
+              # relative_path looks like "<group_prefix>/excel/<file>.xlsx" —
+              # e.g. "off_plan/Apartments/excel/Apartments.xlsx" vs "Apartments/excel/Apartments.xlsx"
+              group_prefix = os.path.dirname(os.path.dirname(relative_path))
+              category_path = group_category_path.get(group_prefix, default_category_path)
+              if group_prefix not in group_category_path:
+                  print(f"  Warning: no summary match for group '{group_prefix}', using fallback: {category_path}")
+
               combined_sheets = defaultdict(list)
 
               for bf in batch_files:
@@ -598,7 +608,7 @@ jobs:
                   except Exception:
                       continue
                   
-                  cp = s.get("category_path", category_path)
+                  cp = s.get("category_path", default_category_path)
                   agg = summary_by_group.setdefault(cp, {
                       "scraped_at": s.get("scraped_at"),
                       "data_scraped_date": s.get("data_scraped_date"),

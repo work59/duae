@@ -556,6 +556,17 @@ def _process_category_internal(
     # Build category_path dynamically from category_v2.slug_paths
     first_cat_v2 = df["category_v2"].iloc[0] if not df.empty and "category_v2" in df.columns else None
     category_path = get_category_path(first_cat_v2)
+
+    # off_plan is a completion_status split of sale_residential, not a real
+    # Dubizzle category — category_v2 is identical for both splits, so without
+    # this override off_plan would land in the exact same residential path
+    # (same category_path, same _cat0 groups, same output_base_dir).
+    if category_name == "off_plan":
+        category_path = category_path.replace(
+            "property-for-sale/residential", "property-for-sale/off-plan"
+        )
+        output_base_dir = os.path.join(output_base_dir, "off_plan")
+
     print(f"  Category path: {category_path}")
 
     df["_names_en"] = df["category_v2"].apply(get_category_names)
